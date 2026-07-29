@@ -120,34 +120,72 @@ async function findParent(context) {
   return findWithGitHubSearch(context);
 }
 
-function render(context, parent) {
-  document.getElementById(ROOT_ID)?.remove();
-  if (!parent || !context.baseElement.isConnected) return;
+async function findStack(context) {
+  const currentTitle = document.querySelector("h1")?.textContent
+    ?.replace(new RegExp(`#${context.number}\\s*$`), "")
+    .trim() || `PR #${context.number}`;
 
-  const container = document.createElement("span");
-  container.id = ROOT_ID;
-  container.className = "github-parent-pr";
+  const stack = [{
+    number: context.number,
+    title: currentTitle,
+    url: location.href,
+    target: context.base,
+    current: true
+  }];
 
-  const link = document.createElement("a");
-  link.href = parent.url;
-  link.className = "github-parent-pr__button";
-  link.textContent = `Parent #${parent.number}`;
-  link.title = `${parent.title}${parent.target ? ` → ${parent.target}` : ""}`;
+  let cursor = context;
+  const seen = new Set([context.number]);
+  for (let depth = 0; depth < 10 && !DEFAULT_BRANCHES.has(cursor.base.toLowerCase()); depth++) {
+    const parent = await findParent(cursor);
+    if (!parent || seen.has(parent.number)) break;
 
-  container.append(link);
-
-  // Put the link beside the PR-level Code dropdown. The repository's Code
-  // navigation tab is an <a>, while this control is a visible <button>.
-  const codeButton = [...document.querySelectorAll("button")].find((button) => {
-    const rect = button.getBoundingClientRect();
-    return button.textContent?.trim() === "Code" && rect.width > 0 && rect.top < 400;
-  });
-
-  if (codeButton?.parentElement) {
-    codeButton.parentElement.insertBefore(container, codeButton);
-  } else {
-    (context.summaryElement || context.baseElement.parentElement)?.append(container);
+    seen.add(parent.number);
+    stack.push(parent);
+    if (!parent.target) break;
+    cursor = { ...context, number: parent.number, base: parent.target };
   }
+
+  return stack.reverse();
+}
+
+function renderStack(context, stack) {
+  document.getElementById(ROOT_ID)?.remove();
+  if (stack.length < 2 || !context.baseElement.isConnected) return;
+
+  const reviewersHeading = [...document.querySelectorAll("h3")]
+    .find((heading) => heading.textContent?.trim() === "Reviewers");
+  const reviewersSection = reviewersHeading?.closest(".discussion-sidebar-item");
+  if (!reviewersSection) return;
+
+  const section = document.createElement("div");
+  section.id = ROOT_ID;
+  section.className = "github-pr-stack discussion-sidebar-item sidebar-assignee";
+
+  const heading = document.createElement("h3");
+  heading.className = "discussion-sidebar-heading text-bold";
+  heading.textContent = "Stack";
+  section.append(heading);
+
+  const list = document.createElement("ol");
+  list.className = "github-pr-stack__list";
+
+  for (const pull of stack) {
+    const item = document.createElement("li");
+    item.className = pull.current ? "github-pr-stack__item is-current" : "github-pr-stack__item";
+
+    const link = document.createElement("a");
+    link.href = pull.url;
+    link.className = "Link--primary github-pr-stack__link";
+    link.title = pull.title;
+    link.textContent = `#${pull.number} ${pull.title}`;
+    if (pull.current) link.setAttribute("aria-current", "page");
+
+    item.append(link);
+    list.append(item);
+  }
+
+  section.append(list);
+  reviewersSection.before(section);
 }
 
 async function update() {
@@ -164,8 +202,8 @@ async function update() {
   navigationKey = key;
   const version = ++requestVersion;
   try {
-    const parent = await findParent(context);
-    if (version === requestVersion && key === navigationKey) render(context, parent);
+    const stack = await findStack(context);
+    if (version === requestVersion && key === navigationKey) renderStack(context, stack);
   } catch (error) {
     console.debug("GitHub Parent PR:", error);
   }

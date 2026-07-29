@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "GitHub Parent PR",
+  "name": "GitHub PR Stack",
   "version": "0.1.0",
-  "description": "Shows the parent pull request for stacked GitHub pull requests.",
+  "description": "Shows the pull request stack in GitHub's PR sidebar.",
   "content_scripts": [
     {
       "matches": ["https://github.com/*/*/pull/*"],

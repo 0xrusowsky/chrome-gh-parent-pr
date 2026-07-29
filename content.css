@@ -1,29 +1,33 @@
-.github-parent-pr {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 0.5rem;
-  white-space: nowrap;
+.github-pr-stack {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--borderColor-muted, var(--color-border-muted));
 }
 
-.github-parent-pr__button {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
-  padding: 0 0.75rem;
-  color: var(--button-default-fgColor-rest, var(--fgColor-default));
+.github-pr-stack__list {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.github-pr-stack__item {
+  min-width: 0;
+  padding-left: 0.625rem;
+  border-left: 2px solid var(--borderColor-default, var(--color-border-default));
+}
+
+.github-pr-stack__item.is-current {
+  border-left-color: var(--borderColor-accent-emphasis, var(--color-accent-emphasis));
+  font-weight: 600;
+}
+
+.github-pr-stack__link {
+  display: block;
+  overflow: hidden;
   font-size: 0.875rem;
-  font-weight: 500;
-  line-height: 1.25rem;
-  text-decoration: none;
-  background: var(--button-default-bgColor-rest, var(--bgColor-muted));
-  border: 1px solid var(--button-default-borderColor-rest, var(--borderColor-default));
-  border-radius: 0.375rem;
-  box-shadow: var(--button-default-shadow-rest, 0 1px 0 rgba(31, 35, 40, 0.04));
-}
-
-.github-parent-pr__button:hover {
-  color: var(--button-default-fgColor-hover, var(--fgColor-default));
-  text-decoration: none;
-  background: var(--button-default-bgColor-hover, var(--bgColor-neutral-muted));
-  border-color: var(--button-default-borderColor-hover, var(--borderColor-default));
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
