@@ -213,8 +213,17 @@ function renderStack(context, stack) {
   section.className = "github-pr-stack discussion-sidebar-item sidebar-assignee";
 
   const heading = document.createElement("h3");
-  heading.className = "discussion-sidebar-heading text-bold";
-  heading.textContent = "Stack";
+  heading.className = "discussion-sidebar-heading text-bold github-pr-stack__heading";
+
+  const headingLabel = document.createElement("span");
+  headingLabel.textContent = "Stack";
+
+  const count = document.createElement("span");
+  count.className = "github-pr-stack__count Counter";
+  count.textContent = String(stack.length);
+  count.title = `${stack.length} pull requests`;
+
+  heading.append(headingLabel, count);
   section.append(heading);
 
   const list = document.createElement("ol");
