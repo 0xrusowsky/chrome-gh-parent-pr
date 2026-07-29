@@ -2,7 +2,7 @@
 
 A small Chrome extension that shows the parent pull request for stacked GitHub PRs.
 
-When a PR targets a branch other than `main` or `master`, the extension looks for an open PR from that target branch and adds a **Parent PR #…** button beside GitHub's **Code** button.
+When a PR targets a branch other than `main` or `master`, the extension looks for an open PR from that target branch and adds a **Parent #…** button beside GitHub's **Code** button.
 
 ## Install
 

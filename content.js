@@ -131,7 +131,7 @@ function render(context, parent) {
   const link = document.createElement("a");
   link.href = parent.url;
   link.className = "github-parent-pr__button";
-  link.textContent = `Parent PR #${parent.number}`;
+  link.textContent = `Parent #${parent.number}`;
   link.title = `${parent.title}${parent.target ? ` → ${parent.target}` : ""}`;
 
   container.append(link);
