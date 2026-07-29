@@ -80,7 +80,8 @@ async function findWithApi({ owner, repo, number, base }) {
     number: parent.number,
     title: parent.title,
     url: parent.html_url,
-    target: parent.base?.ref
+    target: parent.base?.ref,
+    state: parent.merged_at ? "merged" : parent.draft ? "draft" : parent.state
   };
 }
 
@@ -104,7 +105,8 @@ async function findWithGitHubSearch({ owner, repo, number, base }) {
     return {
       number: Number(match[1]),
       title,
-      url: new URL(link.getAttribute("href"), location.origin).href
+      url: new URL(link.getAttribute("href"), location.origin).href,
+      state: "open"
     };
   }
 
@@ -122,16 +124,37 @@ async function findParent(context) {
   return findWithGitHubSearch(context);
 }
 
-async function findStack(context) {
-  const currentTitle = document.querySelector("h1")?.textContent
-    ?.replace(new RegExp(`#${context.number}\\s*$`), "")
-    .trim() || `PR #${context.number}`;
+function currentPullData(context) {
+  for (const script of document.querySelectorAll('script[data-target="react-app.embeddedData"]')) {
+    try {
+      const data = JSON.parse(script.textContent);
+      const pull = data?.payload?.pullRequestsConversationsRoute?.pullRequest
+        || data?.payload?.pullRequest;
+      if (pull?.number === context.number) {
+        return {
+          title: pull.title,
+          state: pull.state?.toLowerCase() === "draft" ? "draft" : pull.state?.toLowerCase()
+        };
+      }
+    } catch {
+      // Ignore embedded data belonging to unrelated React applications.
+    }
+  }
 
+  return {
+    title: document.title.split(" · Pull Request")[0].replace(/ by [^·]+$/, "").trim(),
+    state: "open"
+  };
+}
+
+async function findStack(context) {
+  const current = currentPullData(context);
   const stack = [{
     number: context.number,
-    title: currentTitle,
+    title: current.title || `PR #${context.number}`,
     url: location.href,
     target: context.base,
+    state: current.state,
     current: true
   }];
 
@@ -191,8 +214,17 @@ function renderStack(context, stack) {
   list.className = "github-pr-stack__list";
 
   for (const pull of stack) {
+    const state = pull.state || "open";
     const item = document.createElement("li");
     item.className = pull.current ? "github-pr-stack__item is-current" : "github-pr-stack__item";
+
+    const icon = document.createElement("span");
+    icon.className = `github-pr-stack__icon is-${state}`;
+    icon.title = state[0].toUpperCase() + state.slice(1);
+    icon.setAttribute("aria-label", icon.title);
+    icon.innerHTML = state === "draft"
+      ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.75 3.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0 9a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0ZM3.5 5.75v4.5M13.75 3.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm-1.25 2.25v1.5"/></svg>'
+      : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.75 3.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0 9a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0ZM3.5 5.75v4.5m9-5v3.5a3.25 3.25 0 0 1-3.25 3.25H7"/></svg>';
 
     const link = document.createElement("a");
     link.href = pull.url;
@@ -201,7 +233,11 @@ function renderStack(context, stack) {
     link.textContent = `#${pull.number} ${pull.title}`;
     if (pull.current) link.setAttribute("aria-current", "page");
 
-    item.append(link);
+    const stateLabel = document.createElement("span");
+    stateLabel.className = `github-pr-stack__state is-${state}`;
+    stateLabel.textContent = state[0].toUpperCase() + state.slice(1);
+
+    item.append(icon, link, stateLabel);
     list.append(item);
   }
 
