@@ -152,17 +152,31 @@ async function findStack(context) {
 
 function renderStack(context, stack) {
   document.getElementById(ROOT_ID)?.remove();
-  if (stack.length < 2 || !context.baseElement.isConnected) return;
+  if (!stack.length || !context.baseElement.isConnected) return false;
 
-  // The classic and React PR sidebars use different heading elements. Find
-  // the smallest visible element whose complete label is "Reviewers".
-  const reviewersHeading = [...document.querySelectorAll("h2, h3, span, div")]
-    .filter((element) => element.textContent?.trim() === "Reviewers")
-    .find((element) => element.getClientRects().length > 0);
-  const reviewersSection = reviewersHeading?.closest(".discussion-sidebar-item")
-    || reviewersHeading?.closest("[data-testid*='reviewer']")
-    || reviewersHeading?.parentElement;
-  if (!reviewersHeading || !reviewersSection) return false;
+  // Sidebar variants render either "Reviewers" or "Reviewers – review now".
+  // Choose the smallest visible matching element rather than depending on
+  // GitHub's frequently changing generated class names.
+  const reviewersHeading = [...document.querySelectorAll("h2, h3, h4, span, strong, div")]
+    .filter((element) => element.textContent?.trim().startsWith("Reviewers"))
+    .filter((element) => element.getClientRects().length > 0)
+    .sort((a, b) => a.textContent.trim().length - b.textContent.trim().length)[0];
+  if (!reviewersHeading) return false;
+
+  let reviewersSection = reviewersHeading.closest(".discussion-sidebar-item")
+    || reviewersHeading.closest("[data-testid*='reviewer']");
+
+  if (!reviewersSection) {
+    // Walk outward while we are still inside Reviewers, stopping before the
+    // surrounding container that also includes the Assignees section.
+    reviewersSection = reviewersHeading;
+    while (
+      reviewersSection.parentElement
+      && !reviewersSection.parentElement.textContent?.includes("Assignees")
+    ) {
+      reviewersSection = reviewersSection.parentElement;
+    }
+  }
 
   const section = document.createElement("div");
   section.id = ROOT_ID;
