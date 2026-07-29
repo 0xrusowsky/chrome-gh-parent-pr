@@ -1,6 +1,13 @@
 const ROOT_ID = "github-parent-pr";
 const DEFAULT_BRANCHES = new Set(["main", "master"]);
 
+// The same Microsoft Codicons used by Supacode.
+const PR_ICON_PATHS = {
+  open: "M13 10.05V5.5C13 4.12 11.88 3 10.5 3H8.71L9.85 1.85C10.05 1.66 10.05 1.34 9.85 1.15C9.66.95 9.34.95 9.15 1.15L7.15 3.15C6.95 3.34 6.95 3.66 7.15 3.85L9.15 5.85C9.34 6.05 9.66 6.05 9.85 5.85C10.05 5.66 10.05 5.34 9.85 5.15L8.71 4H10.5C11.33 4 12 4.67 12 5.5V10.05C10.86 10.28 10 11.29 10 12.5C10 13.88 11.12 15 12.5 15S15 13.88 15 12.5C15 11.29 14.14 10.28 13 10.05ZM12.5 14C11.67 14 11 13.33 11 12.5S11.67 11 12.5 11 14 11.67 14 12.5 13.33 14 12.5 14ZM6 3.5C6 2.12 4.88 1 3.5 1S1 2.12 1 3.5C1 4.71 1.86 5.72 3 5.95V10.05C1.86 10.28 1 11.29 1 12.5 1 13.88 2.12 15 3.5 15S6 13.88 6 12.5C6 11.29 5.14 10.28 4 10.05V5.95C5.14 5.72 6 4.71 6 3.5ZM2 3.5C2 2.67 2.67 2 3.5 2S5 2.67 5 3.5 4.33 5 3.5 5 2 4.33 2 3.5ZM5 12.5C5 13.33 4.33 14 3.5 14S2 13.33 2 12.5 2.67 11 3.5 11 5 11.67 5 12.5Z",
+  draft: "M6 3.5C6 2.12 4.88 1 3.5 1S1 2.12 1 3.5C1 4.71 1.86 5.72 3 5.95V10.05C1.86 10.28 1 11.29 1 12.5 1 13.88 2.12 15 3.5 15S6 13.88 6 12.5C6 11.29 5.14 10.28 4 10.05V5.95C5.14 5.72 6 4.71 6 3.5ZM5 12.5C5 13.33 4.33 14 3.5 14S2 13.33 2 12.5 2.67 11 3.5 11 5 11.67 5 12.5ZM3.5 5C2.67 5 2 4.33 2 3.5S2.67 2 3.5 2 5 2.67 5 3.5 4.33 5 3.5 5ZM12.5 10C11.12 10 10 11.12 10 12.5S11.12 15 12.5 15 15 13.88 15 12.5 13.88 10 12.5 10Zm0 4C11.67 14 11 13.33 11 12.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5Zm-1-6.5a1 1 0 1 1 2 0 1 1 0 0 1-2 0Zm0-4a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z",
+  closed: "M13 10.05V7.5a.5.5 0 0 0-1 0v2.55A2.5 2.5 0 1 0 13 10.05ZM12.5 14a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3ZM6 3.5A2.5 2.5 0 1 0 3 5.95v4.1A2.5 2.5 0 1 0 4 10.05v-4.1A2.5 2.5 0 0 0 6 3.5ZM3.5 14a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm0-9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm7.15-.35 1.15-1.15-1.15-1.15a.5.5 0 0 1 .7-.7l1.15 1.14 1.15-1.14a.5.5 0 0 1 .7.7L13.21 3.5l1.14 1.15a.5.5 0 0 1-.7.7L12.5 4.21l-1.15 1.14a.5.5 0 0 1-.7-.7Z"
+};
+
 let navigationKey = "";
 let requestVersion = 0;
 let cachedContext = null;
@@ -222,9 +229,8 @@ function renderStack(context, stack) {
     icon.className = `github-pr-stack__icon is-${state}`;
     icon.title = state[0].toUpperCase() + state.slice(1);
     icon.setAttribute("aria-label", icon.title);
-    icon.innerHTML = state === "draft"
-      ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.75 3.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0 9a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0ZM3.5 5.75v4.5M13.75 3.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm-1.25 2.25v1.5"/></svg>'
-      : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.75 3.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0 9a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0ZM3.5 5.75v4.5m9-5v3.5a3.25 3.25 0 0 1-3.25 3.25H7"/></svg>';
+    const iconPath = PR_ICON_PATHS[state] || PR_ICON_PATHS.open;
+    icon.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${iconPath}"/></svg>`;
 
     const link = document.createElement("a");
     link.href = pull.url;
@@ -233,11 +239,13 @@ function renderStack(context, stack) {
     link.textContent = `#${pull.number} ${pull.title}`;
     if (pull.current) link.setAttribute("aria-current", "page");
 
-    const stateLabel = document.createElement("span");
-    stateLabel.className = `github-pr-stack__state is-${state}`;
-    stateLabel.textContent = state[0].toUpperCase() + state.slice(1);
-
-    item.append(icon, link, stateLabel);
+    item.append(icon, link);
+    if (state !== "open") {
+      const stateLabel = document.createElement("span");
+      stateLabel.className = `github-pr-stack__state is-${state}`;
+      stateLabel.textContent = state[0].toUpperCase() + state.slice(1);
+      item.append(stateLabel);
+    }
     list.append(item);
   }
 

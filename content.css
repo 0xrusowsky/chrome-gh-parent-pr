@@ -48,11 +48,7 @@
 .github-pr-stack__icon svg {
   width: 100%;
   height: 100%;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
+  fill: currentColor;
 }
 
 .github-pr-stack__icon.is-draft {
