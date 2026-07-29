@@ -3,6 +3,8 @@ const DEFAULT_BRANCHES = new Set(["main", "master"]);
 
 let navigationKey = "";
 let requestVersion = 0;
+let cachedContext = null;
+let cachedStack = null;
 
 function pullContext() {
   const match = location.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
@@ -152,10 +154,15 @@ function renderStack(context, stack) {
   document.getElementById(ROOT_ID)?.remove();
   if (stack.length < 2 || !context.baseElement.isConnected) return;
 
-  const reviewersHeading = [...document.querySelectorAll("h3")]
-    .find((heading) => heading.textContent?.trim() === "Reviewers");
-  const reviewersSection = reviewersHeading?.closest(".discussion-sidebar-item");
-  if (!reviewersSection) return;
+  // The classic and React PR sidebars use different heading elements. Find
+  // the smallest visible element whose complete label is "Reviewers".
+  const reviewersHeading = [...document.querySelectorAll("h2, h3, span, div")]
+    .filter((element) => element.textContent?.trim() === "Reviewers")
+    .find((element) => element.getClientRects().length > 0);
+  const reviewersSection = reviewersHeading?.closest(".discussion-sidebar-item")
+    || reviewersHeading?.closest("[data-testid*='reviewer']")
+    || reviewersHeading?.parentElement;
+  if (!reviewersHeading || !reviewersSection) return false;
 
   const section = document.createElement("div");
   section.id = ROOT_ID;
@@ -186,6 +193,7 @@ function renderStack(context, stack) {
 
   section.append(list);
   reviewersSection.before(section);
+  return true;
 }
 
 async function update() {
@@ -194,6 +202,8 @@ async function update() {
   if (!context || DEFAULT_BRANCHES.has(context.base.toLowerCase())) {
     document.getElementById(ROOT_ID)?.remove();
     navigationKey = key || "";
+    cachedContext = null;
+    cachedStack = null;
     return;
   }
   // Do not repeat network requests when unrelated parts of the page mutate.
@@ -203,7 +213,11 @@ async function update() {
   const version = ++requestVersion;
   try {
     const stack = await findStack(context);
-    if (version === requestVersion && key === navigationKey) renderStack(context, stack);
+    if (version === requestVersion && key === navigationKey) {
+      cachedContext = context;
+      cachedStack = stack;
+      renderStack(context, stack);
+    }
   } catch (error) {
     console.debug("GitHub Parent PR:", error);
   }
@@ -213,7 +227,9 @@ async function update() {
 document.addEventListener("turbo:load", update);
 document.addEventListener("pjax:end", update);
 new MutationObserver(() => {
-  if (!document.getElementById(ROOT_ID)) update();
+  if (document.getElementById(ROOT_ID)) return;
+  if (cachedContext && cachedStack) renderStack(cachedContext, cachedStack);
+  update();
 }).observe(document.documentElement, { childList: true, subtree: true });
 
 update();
