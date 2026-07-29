@@ -99,16 +99,37 @@
   fill: currentColor;
 }
 
-.github-pr-stack__icon.is-draft {
+.github-pr-stack__icon.is-draft,
+.github-pr-stack__icon.is-closed,
+.github-pr-stack__icon.is-merged {
   color: var(--fgColor-muted, var(--color-fg-muted));
 }
 
-.github-pr-stack__icon.is-closed {
-  color: var(--fgColor-closed, var(--color-closed-fg));
+.github-pr-stack__badge {
+  stroke: var(--bgColor-default, var(--color-canvas-default));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.15px;
 }
 
-.github-pr-stack__icon.is-merged {
-  color: var(--fgColor-done, var(--color-done-fg));
+.github-pr-stack__badge circle {
+  stroke-width: 1px;
+}
+
+.github-pr-stack__badge path {
+  fill: none;
+}
+
+.github-pr-stack__icon.is-draft .github-pr-stack__badge {
+  fill: var(--fgColor-attention, var(--color-attention-fg));
+}
+
+.github-pr-stack__icon.is-closed .github-pr-stack__badge {
+  fill: var(--fgColor-danger, var(--color-danger-fg));
+}
+
+.github-pr-stack__icon.is-merged .github-pr-stack__badge {
+  fill: var(--fgColor-success, var(--color-success-fg));
 }
 
 .github-pr-stack__state {

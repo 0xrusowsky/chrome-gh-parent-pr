@@ -8,6 +8,13 @@ const PR_ICON_PATHS = {
   closed: "M13 10.05V7.5a.5.5 0 0 0-1 0v2.55A2.5 2.5 0 1 0 13 10.05ZM12.5 14a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3ZM6 3.5A2.5 2.5 0 1 0 3 5.95v4.1A2.5 2.5 0 1 0 4 10.05v-4.1A2.5 2.5 0 0 0 6 3.5ZM3.5 14a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm0-9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm7.15-.35 1.15-1.15-1.15-1.15a.5.5 0 0 1 .7-.7l1.15 1.14 1.15-1.14a.5.5 0 0 1 .7.7L13.21 3.5l1.14 1.15a.5.5 0 0 1-.7.7L12.5 4.21l-1.15 1.14a.5.5 0 0 1-.7-.7Z"
 };
 
+// Supacode-style status badges layered over the pull request icon.
+const PR_STATUS_BADGES = {
+  draft: '<circle cx="12" cy="12" r="4"/><path d="M10.25 12h.01m1.74 0h.01m1.74 0h.01"/>',
+  closed: '<circle cx="12" cy="12" r="4"/><path d="m10.5 10.5 3 3m0-3-3 3"/>',
+  merged: '<circle cx="12" cy="12" r="4"/><path d="m10.1 12 1.2 1.2 2.6-2.6"/>'
+};
+
 let navigationKey = "";
 let requestVersion = 0;
 let cachedContext = null;
@@ -131,16 +138,28 @@ async function findParent(context) {
   return findWithGitHubSearch(context);
 }
 
+function pullState(pull) {
+  if (pull?.mergedAt || pull?.merged_at || pull?.isMerged || pull?.merged === true) return "merged";
+  if (pull?.isDraft || pull?.draft === true) return "draft";
+
+  const state = pull?.state?.toLowerCase();
+  return ["open", "closed", "merged", "draft"].includes(state) ? state : null;
+}
+
 function currentPullData(context) {
   for (const script of document.querySelectorAll('script[data-target="react-app.embeddedData"]')) {
     try {
       const data = JSON.parse(script.textContent);
-      const pull = data?.payload?.pullRequestsConversationsRoute?.pullRequest
-        || data?.payload?.pullRequest;
-      if (pull?.number === context.number) {
+      const candidates = [
+        data?.payload?.pullRequestsConversationsRoute?.pullRequest,
+        data?.payload?.pullRequest,
+        data?.payload?.pullRequestOverviewRoute?.pullRequest
+      ];
+      const pull = candidates.find((candidate) => Number(candidate?.number) === context.number);
+      if (pull) {
         return {
           title: pull.title,
-          state: pull.state?.toLowerCase() === "draft" ? "draft" : pull.state?.toLowerCase()
+          state: pullState(pull) || "open"
         };
       }
     } catch {
@@ -148,9 +167,17 @@ function currentPullData(context) {
     }
   }
 
+  // The embedded-data shape changes periodically. GitHub's visible state badge
+  // is a reliable fallback, and also updates immediately after merging/closing.
+  const stateLabels = [...document.querySelectorAll(".State, [class*='State--']")]
+    .map((element) => element.textContent?.trim().toLowerCase())
+    .filter(Boolean);
+  const state = ["merged", "closed", "draft", "open"]
+    .find((value) => stateLabels.includes(value)) || "open";
+
   return {
     title: document.title.split(" · Pull Request")[0].replace(/ by [^·]+$/, "").trim(),
-    state: "open"
+    state
   };
 }
 
@@ -238,8 +265,10 @@ function renderStack(context, stack) {
     icon.className = `github-pr-stack__icon is-${state}`;
     icon.title = state[0].toUpperCase() + state.slice(1);
     icon.setAttribute("aria-label", icon.title);
-    const iconPath = PR_ICON_PATHS[state] || PR_ICON_PATHS.open;
-    icon.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${iconPath}"/></svg>`;
+    const badge = PR_STATUS_BADGES[state]
+      ? `<g class="github-pr-stack__badge">${PR_STATUS_BADGES[state]}</g>`
+      : "";
+    icon.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${PR_ICON_PATHS.open}"/>${badge}</svg>`;
 
     const link = document.createElement("a");
     link.href = pull.url;
@@ -294,7 +323,16 @@ async function update() {
 document.addEventListener("turbo:load", update);
 document.addEventListener("pjax:end", update);
 new MutationObserver(() => {
-  if (document.getElementById(ROOT_ID)) return;
+  const renderedStack = document.getElementById(ROOT_ID);
+  if (renderedStack && cachedContext && cachedStack) {
+    const current = cachedStack.find((pull) => pull.current);
+    const latest = currentPullData(cachedContext);
+    if (current && latest.state !== current.state) {
+      current.state = latest.state;
+      renderStack(cachedContext, cachedStack);
+    }
+    return;
+  }
   if (cachedContext && cachedStack) renderStack(cachedContext, cachedStack);
   update();
 }).observe(document.documentElement, { childList: true, subtree: true });
