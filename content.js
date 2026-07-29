@@ -236,7 +236,7 @@ function renderStack(context, stack) {
     link.href = pull.url;
     link.className = "Link--primary github-pr-stack__link";
     link.title = pull.title;
-    link.textContent = `#${pull.number} ${pull.title}`;
+    link.textContent = pull.title;
     if (pull.current) link.setAttribute("aria-current", "page");
 
     item.append(icon, link);
