@@ -69,7 +69,20 @@ function pullContext() {
   }
 
   if (!base) return null;
-  return { owner, repo, number: Number(number), base, baseElement, summaryElement }; 
+
+  let headElement = document.querySelector(".head-ref");
+  if (!headElement && summaryElement) {
+    const branchLinks = [...summaryElement.querySelectorAll(`a[href^="${treePrefix}"]`)];
+    headElement = branchLinks.find((element) => element !== baseElement) || null;
+  }
+
+  let head = headElement?.textContent?.trim();
+  const headHref = headElement?.getAttribute("href") || "";
+  if (headHref.startsWith(treePrefix)) {
+    head = decodeURIComponent(headHref.slice(treePrefix.length));
+  }
+
+  return { owner, repo, number: Number(number), base, head, baseElement, summaryElement };
 }
 
 function apiHeaders() {
@@ -138,6 +151,74 @@ async function findParent(context) {
   return findWithGitHubSearch(context);
 }
 
+async function findChildren({ owner, repo, number, head }) {
+  if (!head) return [];
+
+  try {
+    const endpoint = new URL(`https://api.github.com/repos/${owner}/${repo}/pulls`);
+    endpoint.searchParams.set("state", "open");
+    endpoint.searchParams.set("base", head);
+    endpoint.searchParams.set("per_page", "20");
+
+    const response = await fetch(endpoint, { headers: apiHeaders() });
+    if (!response.ok) throw new Error(`GitHub API returned ${response.status}`);
+
+    return (await response.json())
+      .filter((pull) => pull.number !== number)
+      .map((pull) => ({
+        number: pull.number,
+        title: pull.title,
+        url: pull.html_url,
+        target: pull.base?.ref,
+        head: pull.head?.ref,
+        state: pull.draft ? "draft" : pull.state
+      }));
+  } catch {
+    // Fall through to GitHub's authenticated HTML search for private repos.
+  }
+
+  const endpoint = new URL(`https://github.com/${owner}/${repo}/pulls`);
+  endpoint.searchParams.set("q", `is:pr is:open base:${head}`);
+  const response = await fetch(endpoint, { credentials: "include" });
+  if (!response.ok) return [];
+
+  const documentCopy = new DOMParser().parseFromString(await response.text(), "text/html");
+  const pullPattern = new RegExp(`^/${owner}/${repo}/pull/(\\d+)$`, "i");
+  const children = [];
+  const seen = new Set();
+  for (const link of documentCopy.querySelectorAll("a[href]")) {
+    const match = link.getAttribute("href")?.match(pullPattern);
+    const childNumber = match && Number(match[1]);
+    const title = link.textContent?.trim();
+    if (!childNumber || childNumber === number || seen.has(childNumber) || !title) continue;
+    seen.add(childNumber);
+    children.push({
+      number: childNumber,
+      title,
+      url: new URL(link.getAttribute("href"), location.origin).href,
+      target: head,
+      state: "open"
+    });
+  }
+  return children;
+}
+
+async function findDescendants(context, seen, depth = 0) {
+  if (!context.head || depth >= 10) return [];
+
+  const descendants = [];
+  const children = await findChildren(context);
+  for (const child of children) {
+    if (seen.has(child.number)) continue;
+
+    seen.add(child.number);
+    descendants.push(child);
+    descendants.push(...await findDescendants(child, seen, depth + 1));
+  }
+
+  return descendants;
+}
+
 function pullState(pull) {
   if (pull?.mergedAt || pull?.merged_at || pull?.isMerged || pull?.merged === true) return "merged";
   if (pull?.isDraft || pull?.draft === true) return "draft";
@@ -147,6 +228,13 @@ function pullState(pull) {
 }
 
 function currentPullData(context) {
+  // Prefer GitHub's visible state pill. Embedded data can remain `OPEN` after
+  // a Turbo merge/close until the route data is refreshed.
+  const visibleState = [...document.querySelectorAll(".State, [class*='State--'], [class*='StateLabel'], [data-testid*='state']")]
+    .filter((element) => !element.closest(`#${ROOT_ID}`))
+    .map((element) => element.textContent?.trim().toLowerCase())
+    .find((state) => ["merged", "closed", "draft", "open"].includes(state));
+
   for (const script of document.querySelectorAll('script[data-target="react-app.embeddedData"]')) {
     try {
       const data = JSON.parse(script.textContent);
@@ -159,7 +247,8 @@ function currentPullData(context) {
       if (pull) {
         return {
           title: pull.title,
-          state: pullState(pull) || "open"
+          state: visibleState || pullState(pull) || "open",
+          head: pull.headRefName || pull.head?.ref || pull.headRef?.name
         };
       }
     } catch {
@@ -167,22 +256,15 @@ function currentPullData(context) {
     }
   }
 
-  // The embedded-data shape changes periodically. GitHub's visible state badge
-  // is a reliable fallback, and also updates immediately after merging/closing.
-  const stateLabels = [...document.querySelectorAll(".State, [class*='State--']")]
-    .map((element) => element.textContent?.trim().toLowerCase())
-    .filter(Boolean);
-  const state = ["merged", "closed", "draft", "open"]
-    .find((value) => stateLabels.includes(value)) || "open";
-
   return {
     title: document.title.split(" · Pull Request")[0].replace(/ by [^·]+$/, "").trim(),
-    state
+    state: visibleState || "open"
   };
 }
 
 async function findStack(context) {
   const current = currentPullData(context);
+  if (!context.head && current.head) context.head = current.head;
   const stack = [{
     number: context.number,
     title: current.title || `PR #${context.number}`,
@@ -204,7 +286,9 @@ async function findStack(context) {
     cursor = { ...context, number: parent.number, base: parent.target };
   }
 
-  return stack.reverse();
+  stack.reverse();
+  stack.push(...await findDescendants(context, seen));
+  return stack;
 }
 
 function renderStack(context, stack) {
@@ -235,40 +319,41 @@ function renderStack(context, stack) {
     }
   }
 
+  // `findStack` builds the chain from the trunk outward. Render that chain in
+  // reverse so every parent is always closer to `main` than its child, even
+  // when the current PR is in the middle of the stack.
+  const orderedStack = [...stack].reverse();
+
   const section = document.createElement("div");
   section.id = ROOT_ID;
   section.className = "github-pr-stack discussion-sidebar-item sidebar-assignee";
 
-  const heading = document.createElement("h3");
-  heading.className = "discussion-sidebar-heading text-bold github-pr-stack__heading";
-
-  const headingLabel = document.createElement("span");
-  headingLabel.textContent = "Stack";
-
-  const count = document.createElement("span");
-  count.className = "github-pr-stack__count Counter";
-  count.textContent = String(stack.length);
-  count.title = `${stack.length} pull requests`;
-
-  heading.append(headingLabel, count);
-  section.append(heading);
-
   const list = document.createElement("ol");
   list.className = "github-pr-stack__list";
 
-  for (const pull of stack) {
+  for (let index = 0; index < orderedStack.length; index++) {
+    const pull = orderedStack[index];
     const state = pull.state || "open";
+    const stateLabel = state[0].toUpperCase() + state.slice(1);
     const item = document.createElement("li");
     item.className = pull.current ? "github-pr-stack__item is-current" : "github-pr-stack__item";
 
     const icon = document.createElement("span");
     icon.className = `github-pr-stack__icon is-${state}`;
-    icon.title = state[0].toUpperCase() + state.slice(1);
-    icon.setAttribute("aria-label", icon.title);
-    const badge = PR_STATUS_BADGES[state]
-      ? `<g class="github-pr-stack__badge">${PR_STATUS_BADGES[state]}</g>`
-      : "";
-    icon.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${PR_ICON_PATHS.open}"/>${badge}</svg>`;
+    icon.title = stateLabel;
+    icon.setAttribute("aria-label", stateLabel);
+    if (state === "open") {
+      icon.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="m4.5 8 2.25 2.25L11.75 5.5"/></svg>';
+    } else {
+      const iconPath = PR_ICON_PATHS[state] || PR_ICON_PATHS.open;
+      const badge = PR_STATUS_BADGES[state]
+        ? `<g class="github-pr-stack__badge">${PR_STATUS_BADGES[state]}</g>`
+        : "";
+      icon.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${iconPath}"/>${badge}</svg>`;
+    }
+
+    const details = document.createElement("div");
+    details.className = "github-pr-stack__details";
 
     const link = document.createElement("a");
     link.href = pull.url;
@@ -277,14 +362,32 @@ function renderStack(context, stack) {
     link.textContent = pull.title;
     if (pull.current) link.setAttribute("aria-current", "page");
 
-    item.append(icon, link);
-    if (state !== "open") {
-      const stateLabel = document.createElement("span");
-      stateLabel.className = `github-pr-stack__state is-${state}`;
-      stateLabel.textContent = state[0].toUpperCase() + state.slice(1);
-      item.append(stateLabel);
-    }
+    const branch = pull.head || (pull.current ? context.head : null) || orderedStack[index - 1]?.target || "";
+    const meta = document.createElement("div");
+    meta.className = "github-pr-stack__meta";
+    meta.textContent = `#${pull.number}${branch ? ` · ${branch}` : ""}`;
+
+    details.append(link, meta);
+
+    item.append(icon, details);
     list.append(item);
+  }
+
+  const trunk = stack[0]?.target || context.base;
+  if (trunk) {
+    const baseItem = document.createElement("li");
+    baseItem.className = "github-pr-stack__item github-pr-stack__base";
+
+    const baseIcon = document.createElement("span");
+    baseIcon.className = "github-pr-stack__base-icon";
+    baseIcon.setAttribute("aria-hidden", "true");
+
+    const baseLabel = document.createElement("span");
+    baseLabel.className = "github-pr-stack__base-label";
+    baseLabel.textContent = trunk;
+
+    baseItem.append(baseIcon, baseLabel);
+    list.append(baseItem);
   }
 
   section.append(list);
@@ -294,8 +397,8 @@ function renderStack(context, stack) {
 
 async function update() {
   const context = pullContext();
-  const key = context && `${context.owner}/${context.repo}/${context.number}:${context.base}`;
-  if (!context || DEFAULT_BRANCHES.has(context.base.toLowerCase())) {
+  const key = context && `${context.owner}/${context.repo}/${context.number}:${context.base}:${context.head || ""}`;
+  if (!context) {
     document.getElementById(ROOT_ID)?.remove();
     navigationKey = key || "";
     cachedContext = null;
@@ -310,6 +413,15 @@ async function update() {
   try {
     const stack = await findStack(context);
     if (version === requestVersion && key === navigationKey) {
+      // A lone PR targeting the trunk is not a stack. Keep the sidebar clean
+      // unless there is at least one related PR to render.
+      if (stack.length < 2) {
+        document.getElementById(ROOT_ID)?.remove();
+        cachedContext = null;
+        cachedStack = null;
+        return;
+      }
+
       cachedContext = context;
       cachedStack = stack;
       renderStack(context, stack);
