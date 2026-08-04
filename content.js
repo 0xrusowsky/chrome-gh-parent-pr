@@ -485,7 +485,15 @@ function renderStack(context, stack) {
     list.append(item);
   }
 
-  const trunk = stack[0]?.target || context.base;
+  // The trunk is the base branch that is not itself another PR's head.
+  // This keeps `main` as the bottom row even when the current PR is a parent.
+  const stackHeads = new Set([
+    ...stack.map((pull) => pull.head),
+    context.head
+  ].filter(Boolean));
+  const trunk = stack
+    .map((pull) => pull.target)
+    .find((target) => target && !stackHeads.has(target)) || stack[0]?.target || context.base;
   if (trunk) {
     const baseItem = document.createElement("li");
     baseItem.className = "github-pr-stack__item github-pr-stack__base";
