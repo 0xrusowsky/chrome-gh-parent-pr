@@ -89,11 +89,13 @@
   color: var(--github-pr-stack-green);
 }
 
-.github-pr-stack__icon.is-open svg circle {
+.github-pr-stack__icon.is-open svg circle,
+.github-pr-stack__icon.is-merged svg circle {
   fill: currentColor;
 }
 
-.github-pr-stack__icon.is-open svg path {
+.github-pr-stack__icon.is-open svg path,
+.github-pr-stack__icon.is-merged svg path {
   fill: none;
   stroke: #fff;
   stroke-linecap: round;

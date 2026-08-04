@@ -395,7 +395,7 @@ function renderStack(context, stack) {
     icon.className = `github-pr-stack__icon is-${state}`;
     icon.title = stateLabel;
     icon.setAttribute("aria-label", stateLabel);
-    if (state === "open") {
+    if (state === "open" || state === "merged") {
       icon.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="m4.5 8 2.25 2.25L11.75 5.5"/></svg>';
     } else {
       const iconPath = PR_ICON_PATHS[state] || PR_ICON_PATHS.open;
