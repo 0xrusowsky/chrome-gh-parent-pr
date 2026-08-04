@@ -133,6 +133,20 @@ async function findPullHead(url, { owner, repo }) {
   }
 }
 
+async function findPullHeadFromApi({ owner, repo, number }) {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}`, {
+      headers: apiHeaders()
+    });
+    if (!response.ok) return null;
+
+    const pull = await response.json();
+    return pull.head?.ref || null;
+  } catch {
+    return null;
+  }
+}
+
 async function findWithApi({ owner, repo, number, base }) {
   const endpoint = new URL(`https://api.github.com/repos/${owner}/${repo}/pulls`);
   endpoint.searchParams.set("state", "open");
@@ -254,6 +268,13 @@ async function findDescendants(context, seen, depth = 0) {
   const children = await findChildren(context);
   for (const child of children) {
     if (seen.has(child.number)) continue;
+    if (!child.head) {
+      child.head = await findPullHeadFromApi({
+        owner: context.owner,
+        repo: context.repo,
+        number: child.number
+      });
+    }
     if (!child.head) child.head = await findPullHead(child.url, context);
 
     seen.add(child.number);
@@ -309,7 +330,9 @@ function currentPullData(context) {
 
 async function findStack(context) {
   const current = currentPullData(context);
-  if (!context.head && current.head) context.head = current.head;
+  const apiHead = await findPullHeadFromApi(context);
+  if (apiHead) context.head = apiHead;
+  else if (!context.head && current.head) context.head = current.head;
   if (!context.head) context.head = await findPullHead(location.href, context);
   const stack = [{
     number: context.number,
