@@ -92,6 +92,47 @@ function apiHeaders() {
   };
 }
 
+async function findPullHead(url, { owner, repo }) {
+  try {
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) return null;
+
+    const documentCopy = new DOMParser().parseFromString(await response.text(), "text/html");
+    const treePrefix = `/${owner}/${repo}/tree/`;
+    const branchLinks = [...documentCopy.querySelectorAll(`a[href^="${treePrefix}"]`)];
+
+    // The first branch link in the merge summary is the base and the second
+    // is the head. Prefer that pair over unrelated branch links elsewhere on
+    // the pull request page.
+    for (const candidate of branchLinks) {
+      let current = candidate;
+      for (let depth = 0; current && depth < 10; depth++, current = current.parentElement) {
+        if (!(current.textContent || "").includes("wants to merge")) continue;
+
+        const summaryLinks = [...current.querySelectorAll(`a[href^="${treePrefix}"]`)];
+        const headLink = summaryLinks.find((link) => link !== candidate);
+        if (headLink) {
+          return decodeURIComponent(headLink.getAttribute("href").slice(treePrefix.length));
+        }
+      }
+    }
+
+    const uniqueBranches = [];
+    const seen = new Set();
+    for (const link of branchLinks) {
+      const href = link.getAttribute("href");
+      if (seen.has(href)) continue;
+      seen.add(href);
+      uniqueBranches.push(href);
+    }
+    return uniqueBranches[1]
+      ? decodeURIComponent(uniqueBranches[1].slice(treePrefix.length))
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function findWithApi({ owner, repo, number, base }) {
   const endpoint = new URL(`https://api.github.com/repos/${owner}/${repo}/pulls`);
   endpoint.searchParams.set("state", "open");
@@ -108,6 +149,7 @@ async function findWithApi({ owner, repo, number, base }) {
     title: parent.title,
     url: parent.html_url,
     target: parent.base?.ref,
+    head: parent.head?.ref,
     state: parent.merged_at ? "merged" : parent.draft ? "draft" : parent.state
   };
 }
@@ -129,10 +171,12 @@ async function findWithGitHubSearch({ owner, repo, number, base }) {
     const title = link.textContent?.trim();
     if (!title) continue;
 
+    const url = new URL(link.getAttribute("href"), location.origin).href;
     return {
       number: Number(match[1]),
       title,
-      url: new URL(link.getAttribute("href"), location.origin).href,
+      url,
+      head: await findPullHead(url, { owner, repo }),
       state: "open"
     };
   }
@@ -210,6 +254,7 @@ async function findDescendants(context, seen, depth = 0) {
   const children = await findChildren(context);
   for (const child of children) {
     if (seen.has(child.number)) continue;
+    if (!child.head) child.head = await findPullHead(child.url, context);
 
     seen.add(child.number);
     descendants.push(child);
@@ -265,6 +310,7 @@ function currentPullData(context) {
 async function findStack(context) {
   const current = currentPullData(context);
   if (!context.head && current.head) context.head = current.head;
+  if (!context.head) context.head = await findPullHead(location.href, context);
   const stack = [{
     number: context.number,
     title: current.title || `PR #${context.number}`,
