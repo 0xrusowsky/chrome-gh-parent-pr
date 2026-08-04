@@ -23,8 +23,8 @@
   left: calc(0.4rem + 0.2rem + 0.4rem + 0.625rem - 1px);
   width: 2px;
   content: "";
-  background: var(--github-pr-stack-green);
-  opacity: 0.32;
+  background: var(--borderColor-muted, var(--color-border-muted));
+  opacity: 1;
 }
 
 .github-pr-stack__item {
@@ -56,7 +56,7 @@
   width: 3px;
   border-radius: 999px;
   content: "";
-  background: var(--borderColor-accent-emphasis, var(--color-accent-emphasis, #316dca));
+  background: var(--borderColor-default, var(--color-border-default));
 }
 
 .github-pr-stack__icon,
