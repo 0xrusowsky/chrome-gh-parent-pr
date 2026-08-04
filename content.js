@@ -147,6 +147,60 @@ async function findPullHeadFromApi({ owner, repo, number }) {
   }
 }
 
+async function findCheckStatus({ owner, repo, number }, pull) {
+  try {
+    let sha = pull.sha;
+    if (!sha) {
+      const pullResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}`, {
+        headers: apiHeaders()
+      });
+      if (!pullResponse.ok) return null;
+      const details = await pullResponse.json();
+      sha = details.head?.sha;
+    }
+    if (!sha) return null;
+
+    const [checksResponse, statusResponse] = await Promise.all([
+      fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100`, {
+        headers: apiHeaders()
+      }),
+      fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}/status`, {
+        headers: apiHeaders()
+      })
+    ]);
+
+    const checks = checksResponse.ok ? await checksResponse.json() : { check_runs: [] };
+    const combinedStatus = statusResponse.ok ? await statusResponse.json() : {};
+    const runs = checks.check_runs || [];
+    const failingConclusions = new Set([
+      "action_required",
+      "cancelled",
+      "failure",
+      "stale",
+      "startup_failure",
+      "timed_out"
+    ]);
+
+    if (
+      runs.some((run) => failingConclusions.has(run.conclusion))
+      || ["error", "failure"].includes(combinedStatus.state)
+    ) {
+      return "failure";
+    }
+
+    if (
+      runs.some((run) => run.status !== "completed")
+      || combinedStatus.state === "pending"
+    ) {
+      return "pending";
+    }
+
+    return runs.length || combinedStatus.state === "success" ? "success" : null;
+  } catch {
+    return null;
+  }
+}
+
 async function findWithApi({ owner, repo, number, base }) {
   const endpoint = new URL(`https://api.github.com/repos/${owner}/${repo}/pulls`);
   endpoint.searchParams.set("state", "open");
@@ -164,6 +218,7 @@ async function findWithApi({ owner, repo, number, base }) {
     url: parent.html_url,
     target: parent.base?.ref,
     head: parent.head?.ref,
+    sha: parent.head?.sha,
     state: parent.merged_at ? "merged" : parent.draft ? "draft" : parent.state
   };
 }
@@ -229,6 +284,7 @@ async function findChildren({ owner, repo, number, head }) {
         url: pull.html_url,
         target: pull.base?.ref,
         head: pull.head?.ref,
+        sha: pull.head?.sha,
         state: pull.draft ? "draft" : pull.state
       }));
   } catch {
@@ -387,23 +443,26 @@ function renderStack(context, stack) {
   for (let index = 0; index < orderedStack.length; index++) {
     const pull = orderedStack[index];
     const state = pull.state || "open";
-    const stateLabel = state[0].toUpperCase() + state.slice(1);
+    const checkStatus = state === "merged" ? "merged" : pull.checkStatus || "success";
+    const statusLabel = {
+      success: "Checks passed",
+      pending: "Checks pending",
+      failure: "Checks failing",
+      merged: "Merged"
+    }[checkStatus] || "Checks unknown";
     const item = document.createElement("li");
     item.className = pull.current ? "github-pr-stack__item is-current" : "github-pr-stack__item";
 
     const icon = document.createElement("span");
-    icon.className = `github-pr-stack__icon is-${state}`;
-    icon.title = stateLabel;
-    icon.setAttribute("aria-label", stateLabel);
-    if (state === "open" || state === "merged") {
-      icon.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="m4.5 8 2.25 2.25L11.75 5.5"/></svg>';
-    } else {
-      const iconPath = PR_ICON_PATHS[state] || PR_ICON_PATHS.open;
-      const badge = PR_STATUS_BADGES[state]
-        ? `<g class="github-pr-stack__badge">${PR_STATUS_BADGES[state]}</g>`
-        : "";
-      icon.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${iconPath}"/>${badge}</svg>`;
-    }
+    icon.className = `github-pr-stack__icon is-${checkStatus}`;
+    icon.title = statusLabel;
+    icon.setAttribute("aria-label", statusLabel);
+    const iconPath = checkStatus === "pending"
+      ? '<path d="M5 8h.01M8 8h.01M11 8h.01"/>'
+      : checkStatus === "failure"
+        ? '<path d="m5.25 5.25 5.5 5.5m0-5.5-5.5 5.5"/>'
+        : '<path d="m4.5 8 2.25 2.25L11.75 5.5"/>';
+    icon.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/>${iconPath}</svg>`;
 
     const details = document.createElement("div");
     details.className = "github-pr-stack__details";
@@ -474,6 +533,12 @@ async function update() {
         cachedStack = null;
         return;
       }
+
+      await Promise.all(stack.map(async (pull) => {
+        if (pull.state !== "merged") {
+          pull.checkStatus = await findCheckStatus(context, pull);
+        }
+      }));
 
       cachedContext = context;
       cachedStack = stack;
