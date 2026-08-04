@@ -279,7 +279,11 @@ async function findDescendants(context, seen, depth = 0) {
 
     seen.add(child.number);
     descendants.push(child);
-    descendants.push(...await findDescendants(child, seen, depth + 1));
+    descendants.push(...await findDescendants({
+      ...child,
+      owner: context.owner,
+      repo: context.repo
+    }, seen, depth + 1));
   }
 
   return descendants;
@@ -294,36 +298,16 @@ function pullState(pull) {
 }
 
 function currentPullData(context) {
-  // Prefer GitHub's visible state pill. Embedded data can remain `OPEN` after
-  // a Turbo merge/close until the route data is refreshed.
+  // Prefer GitHub's visible state pill. Embedded page data is intentionally
+  // avoided because GitHub's current React payload is not always valid JSON
+  // in the content-script context and the head branch is fetched separately.
   const visibleState = [...document.querySelectorAll(".State, [class*='State--'], [class*='StateLabel'], [data-testid*='state']")]
     .filter((element) => !element.closest(`#${ROOT_ID}`))
     .map((element) => element.textContent?.trim().toLowerCase())
     .find((state) => ["merged", "closed", "draft", "open"].includes(state));
 
-  for (const script of document.querySelectorAll('script[data-target="react-app.embeddedData"]')) {
-    try {
-      const data = JSON.parse(script.textContent);
-      const candidates = [
-        data?.payload?.pullRequestsConversationsRoute?.pullRequest,
-        data?.payload?.pullRequest,
-        data?.payload?.pullRequestOverviewRoute?.pullRequest
-      ];
-      const pull = candidates.find((candidate) => Number(candidate?.number) === context.number);
-      if (pull) {
-        return {
-          title: pull.title,
-          state: visibleState || pullState(pull) || "open",
-          head: pull.headRefName || pull.head?.ref || pull.headRef?.name
-        };
-      }
-    } catch {
-      // Ignore embedded data belonging to unrelated React applications.
-    }
-  }
-
   return {
-    title: document.title.split(" · Pull Request")[0].replace(/ by [^·]+$/, "").trim(),
+    title: document.title.split(" · Pull Request")[0].replace(/ by [^·]+$/, "").trim() || `PR #${context.number}`,
     state: visibleState || "open"
   };
 }
